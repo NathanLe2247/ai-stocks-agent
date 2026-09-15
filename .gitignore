@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+*.db
+.env
+.env.local
+.env.*.local
+data/cache/*
+!data/cache/.gitkeep
+data/runs/*
+!data/runs/.gitkeep
