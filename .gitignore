@@ -5,6 +5,7 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+.mcp.json
 data/cache/*
 !data/cache/.gitkeep
 data/runs/*

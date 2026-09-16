@@ -1,0 +1,8 @@
+{
+  "dashboard.title": "Stocks Agent — Runs",
+  "runs.column.run_id": "Run ID",
+  "runs.column.symbols": "Symbols",
+  "runs.column.status": "Status",
+  "runs.column.started_at": "Started At",
+  "runs.column.completed_at": "Completed At"
+}
