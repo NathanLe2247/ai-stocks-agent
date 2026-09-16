@@ -35,6 +35,7 @@ def _now() -> datetime:
 class Topic(str, Enum):
     """Redis pub/sub topic for each event type."""
 
+    ANALYZE_REQUESTED = "analyze.requested"
     MARKET_COMPLETED = "data.market.completed"
     SOCIAL_COMPLETED = "data.social.completed"
     NEWS_COMPLETED = "data.news.completed"
@@ -52,30 +53,53 @@ class BaseEvent(BaseModel):
     source: str
 
 
+# --- Trigger event ---------------------------------------------------------
+
+class AnalyzeRequestEvent(BaseEvent):
+    """Published once per run to kick off the four parallel data agents.
+    Always carries an explicit symbol list supplied by a human (CLI/prompt/
+    dashboard) upstream of this event — no agent picks its own tickers."""
+
+    source: str = "orchestrator"
+    symbols: list[str]
+
+
 # --- Data-agent completion events ---------------------------------------
+#
+# Common envelope every data agent reports through, regardless of source:
+# whether it succeeded, how long it took, and any data-quality caveats on
+# its payload. This is what the aggregator's join and the dashboard's trace
+# view both read, so all four data-agent events share it via DataAgentEvent
+# rather than redefining these fields four times.
 
-class MarketDataEvent(BaseEvent):
+class DataAgentEvent(BaseEvent):
+    symbols: list[str]
+    status: str = "complete"  # "complete" | "failed"
+    error: Optional[str] = None
+    elapsed_seconds: Optional[float] = None
+    data_quality: list[dict] = Field(default_factory=list)
+    payload: dict = Field(default_factory=dict)
+
+
+class MarketDataEvent(DataAgentEvent):
+    # payload shape: whatever scripts.analyze_ticker.analyze_ticker() returns,
+    # keyed by symbol — see that module for the six-section schema.
     source: str = "market"
-    symbols: list[str]
-    payload: dict  # TODO: shape once yfinance/Alpha Vantage/FRED fields are settled
 
 
-class SocialDataEvent(BaseEvent):
+class SocialDataEvent(DataAgentEvent):
     source: str = "social"
-    symbols: list[str]
-    payload: dict  # TODO: shape once X/Reddit/EODHD fields are settled
+    # payload: dict  # TODO: shape once X/Reddit/EODHD fields are settled
 
 
-class NewsDataEvent(BaseEvent):
+class NewsDataEvent(DataAgentEvent):
     source: str = "news"
-    symbols: list[str]
-    payload: dict  # TODO: shape once Bloomberg/Finnhub/Reddit/Reuters fields are settled
+    # payload: dict  # TODO: shape once Bloomberg/Finnhub/Reddit/Reuters fields are settled
 
 
-class FundamentalsDataEvent(BaseEvent):
+class FundamentalsDataEvent(DataAgentEvent):
     source: str = "fundamentals"
-    symbols: list[str]
-    payload: dict  # TODO: shape once profile/financials/insider fields are settled
+    # payload: dict  # TODO: shape once profile/financials/insider fields are settled
 
 
 # --- Aggregator output ---------------------------------------------------
@@ -143,6 +167,7 @@ class RunStatus(BaseModel):
 # --- Topic <-> event type maps --------------------------------------------
 
 EVENT_TOPICS: dict[type[BaseEvent], Topic] = {
+    AnalyzeRequestEvent: Topic.ANALYZE_REQUESTED,
     MarketDataEvent: Topic.MARKET_COMPLETED,
     SocialDataEvent: Topic.SOCIAL_COMPLETED,
     NewsDataEvent: Topic.NEWS_COMPLETED,

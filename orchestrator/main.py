@@ -1,11 +1,14 @@
-"""Starts the aggregator and nothing else — proves the event-bus + DB
-plumbing is alive before any real agent exists.
+"""Starts the aggregator and every implemented data agent, then waits.
+
+market_data is the first real (non-stub) data agent; social_sentiment,
+news, and fundamentals still need to be started here once they exist.
 """
 from __future__ import annotations
 
 import logging
 import threading
 
+from agents.data.market_data.agent import MarketDataAgent
 from infra import db
 from infra.event_bus import REDIS_URL
 from infra.event_bus import ping as redis_ping
@@ -29,12 +32,17 @@ def main() -> None:
         raise SystemExit(1)
 
     db.init_db()
-    logger.info("db schema ready (run_status, stage_results)")
+    logger.info("db schema ready (run_status, stage_results, agent_results)")
 
     aggregator = Aggregator()
     aggregator.start()
     logger.info("aggregator listening on: %s", [topic.value for topic in SOURCE_TOPICS.values()])
     logger.info("will publish to: %s", "data.aggregated.ready")
+
+    market_data_agent = MarketDataAgent()
+    market_data_agent.register()
+    logger.info("market_data agent listening on: analyze.requested")
+
     logger.info("orchestrator up — waiting for events (Ctrl+C to stop)")
 
     threading.Event().wait()

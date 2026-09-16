@@ -10,10 +10,10 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Column, DateTime, String, create_engine
+from sqlalchemy import JSON, Column, DateTime, Float, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-from shared.schemas.events import AgentStatus, RunStatus
+from shared.schemas.events import AgentStatus, DataAgentEvent, RunStatus
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -41,6 +41,26 @@ class StageResultRow(Base):
     stage = Column(String, primary_key=True)  # research | strategy_proposed | strategy_evaluated
     payload = Column(JSON, nullable=False)
     recorded_at = Column(DateTime(timezone=True), nullable=False)
+
+
+class AgentResultRow(Base):
+    """One row per data agent per run_id — the durable copy of the
+    DataAgentEvent each data agent publishes, written before publish so a
+    bus hiccup can't lose it. Not read by the aggregator (which only needs
+    the transient pub/sub payload); this is for the dashboard's trace/debug
+    view and for recovering a result if the aggregator missed the event."""
+
+    __tablename__ = "agent_results"
+
+    run_id = Column(String, primary_key=True)
+    agent_name = Column(String, primary_key=True)  # market | social | news | fundamentals
+    symbols = Column(JSON, nullable=False, default=list)
+    status = Column(String, nullable=False)  # complete | failed
+    payload = Column(JSON, nullable=False, default=dict)
+    data_quality = Column(JSON, nullable=False, default=list)
+    error = Column(String, nullable=True)
+    elapsed_seconds = Column(Float, nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=False)
 
 
 def init_db() -> None:
@@ -103,3 +123,38 @@ def get_stage_result(run_id: str, stage: str) -> dict | None:
     with _SessionLocal() as session:
         row = session.get(StageResultRow, (run_id, stage))
         return row.payload if row else None
+
+
+def save_agent_result(agent_name: str, event: DataAgentEvent) -> None:
+    with _SessionLocal() as session:
+        key = (event.run_id, agent_name)
+        row = session.get(AgentResultRow, key)
+        if row is None:
+            row = AgentResultRow(run_id=event.run_id, agent_name=agent_name)
+            session.add(row)
+        row.symbols = event.symbols
+        row.status = event.status
+        row.payload = event.payload
+        row.data_quality = event.data_quality
+        row.error = event.error
+        row.elapsed_seconds = event.elapsed_seconds
+        row.completed_at = event.timestamp
+        session.commit()
+
+
+def get_agent_result(run_id: str, agent_name: str) -> dict | None:
+    with _SessionLocal() as session:
+        row = session.get(AgentResultRow, (run_id, agent_name))
+        if row is None:
+            return None
+        return {
+            "run_id": row.run_id,
+            "agent_name": row.agent_name,
+            "symbols": row.symbols,
+            "status": row.status,
+            "payload": row.payload,
+            "data_quality": row.data_quality,
+            "error": row.error,
+            "elapsed_seconds": row.elapsed_seconds,
+            "completed_at": row.completed_at,
+        }
